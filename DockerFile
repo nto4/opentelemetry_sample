@@ -1,0 +1,34 @@
+FROM adoptopenjdk/openjdk16:alpine AS build
+
+ARG APP_VERSION=2.1.7
+
+LABEL Name="Java SpringBoot Demo App" Version=2.1.7
+LABEL org.opencontainers.image.source="https://github.com/benc-uk/java-demoapp"
+
+WORKDIR /build
+COPY .mvn ./.mvn
+COPY mvnw ./mvnw
+COPY pom.xml .
+COPY src ./src
+
+RUN ./mvnw -ntp clean package -Dapp.version=$APP_VERSION -DskipTests -Dmaven.test.skip=true -Dcheckstyle.skip=true
+RUN mv target/java-demoapp-${APP_VERSION}.jar target/java-demoapp.jar
+
+#
+
+FROM adoptopenjdk/openjdk16:alpine-jre AS runtime
+
+# Install curl for downloading OpenTelemetry agent
+RUN apk --no-cache add curl
+
+# Download OpenTelemetry Java agent
+RUN curl -L -o /opentelemetry-javaagent-all.jar https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.7.0/opentelemetry-javaagent-all.jar
+
+WORKDIR /app
+COPY --from=build /build/target/java-demoapp.jar .
+
+EXPOSE 8080
+ENTRYPOINT ["java", "-javaagent:/opentelemetry-javaagent-all.jar", "-Dotel.exporter.otlp.endpoint=http://172.17.84.53:4317", "-Dotel.traces.exporter=otlp", "-Dotel.metrics.exporter=otlp", "-Dotel.logs.exporter=otlp", "-Dotel.resource.attributes=service.name=java-demo-mb", "-jar", "java-demoapp.jar"]
+
+
+# docker build -t java-demoapp
